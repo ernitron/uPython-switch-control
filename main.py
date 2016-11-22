@@ -1,1 +1,3 @@
-../03-python-temp-server/main.py
+from real import main
+
+main()
