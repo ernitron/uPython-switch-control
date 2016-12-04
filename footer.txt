@@ -1,0 +1,21 @@
+</div>
+
+<footer class="footer">
+<a href="/">[ index</a> |
+<a href="/on">switch on</a> |
+<a href="/off">switch off</a> |
+<a href="/getconf">get conf</a> |
+<a href="/setconf">set conf</a> |
+<a href="/setconf/?key=place">set place</a> |
+<a href="/setconf/?key=ssid">set wifi ssid</a> |
+<a href="/setconf/?key=pwd">set wifi password</a> |
+<a href="/status">status</a> |
+<a href="/5min">+5min</a> |
+<a href="/webrepl">webrepl</a> |
+<a href="/reboot">reboot</a> |
+<a href="/help.txt">help</a> ]
+</footer>
+
+<p>Micropython Server - Version 2.1.2-deepsleep 2016-dic-03 17:48:32-- Copyright (C) Erni Tron - 2016</p>
+
+</body></html>
