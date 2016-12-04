@@ -1,57 +1,50 @@
 # Micropython Http Server
 # Erni Tron ernitron@gmail.com
 # Copyright (c) 2016
+
 import time
+import sys
 import network
 import machine
 import gc
 from ubinascii import hexlify
+
 from config import config
 
-def do_connect(ssid, pwd):
-    sta_if = network.WLAN(network.STA_IF)
+def do_connect(ssid, pwd, TYPE, hard_reset=True):
+    interface = network.WLAN(TYPE)
 
-    # Stage zero if credential are null void connection
+    # Stage zero if credential are null disconnect
     if not pwd or not ssid :
-        print('Disconnect from all known networks')
-        sta_if.active(False)
+        print('Disconnecting ', TYPE)
+        interface.active(False)
         return None
+
+    if TYPE == network.AP_IF:
+        interface.active(True)
+        time.sleep_ms(200)
+        interface.config(essid=ssid, password=pwd)
+        return interface
+
+    if hard_reset:
+        interface.active(True)
+        interface.connect(ssid, pwd)
 
     # Stage one check for default connection
-    t = 10
-    while t > 0:
-        time.sleep_ms(200)
-        if sta_if.isconnected():
-            print('Connect to default: ', sta_if.ifconfig())
-            return sta_if
-        t -= 1
+    print('Connecting')
+    for t in range(120):
+        time.sleep_ms(250)
+        if interface.isconnected():
+            #print('Yes! Connected')
+            return interface
+        if t == 60 and not hard_reset:
+            # if still not connected
+            interface.active(True)
+            interface.connect(ssid, pwd)
 
-    # Stage two if not yet connected force active and connect with ssid/pwd
-    if not sta_if.isconnected():
-        sta_if.active(True)
-        sta_if.connect(ssid, pwd)
-        t = 10
-        while t > 0:
-            if sta_if.isconnected():
-                print('Connect to: ', sta_if.ifconfig())
-                return sta_if
-            time.sleep_ms(500)
-            t -= 1
     # No way we are not connected
-    print('Cant Connect')
+    print('Cant connect', ssid)
     return None
-
-def do_accesspoint(ssid, pwd):
-    ap_if = network.WLAN(network.AP_IF)
-    if pwd == '' or ssid == '':
-        ap_if.active(False)
-        print('Disabling AP')
-        return None
-    ap_if.config(essid=ssid, password=pwd)
-    ap_if.active(True)
-    time.sleep_ms(200)
-    print('AP config: ', ap_if.ifconfig())
-    return ap_if
 
 #----------------------------------------------------------------
 # MAIN PROGRAM STARTS HERE
@@ -60,39 +53,63 @@ def main():
     # Enable automatic garbage collector
     gc.enable()
 
+    if machine.reset_cause() == machine.DEEPSLEEP_RESET:
+        print('wake from deep sleep')
+        hard_reset = False
+    else:
+        hard_reset = True
+        print('wake from hard reset')
+
+    # Read from file the whole configuration
     config.read_config()
 
-    # Get defaults
+    # Get WiFi defaults and connect
     ssid = config.get_config('ssid')
     pwd = config.get_config('pwd')
+    interface = do_connect(ssid, pwd, network.STA_IF, hard_reset)
 
-    # Connect to Network and save if
-    sta_if = do_connect(ssid, pwd)
+    if not interface :
+        # Turn on Access Point only with passw
+        apssid = 'YoT-%s' % bytes.decode(chipid)
+        appwd = config.get_config('appwd')
+        interface = do_connect(apssid, appwd, network.AP_IF)
+    	if not interface :
+            print('Restart 10"')
+            time.sleep(10.0)
+            machine.reset()
 
+    # Set Parameters
+    (address, mask, gateway, dns) = interface.ifconfig()
     chipid = hexlify(machine.unique_id())
+
+    config.set_config('address', address)
+    config.set_config('mask', mask)
+    config.set_config('gateway', gateway)
+    config.set_config('dns', dns)
+    config.set_config('mac', hexlify(interface.config('mac'), ':'))
     config.set_config('chipid', chipid)
 
-    # Turn on Access Point only if AP PWD is present
-    apssid = 'YoT-%s' % bytes.decode(chipid)
-    appwd = config.get_config('appwd')
-    do_accesspoint(apssid, appwd)
+    # We can set the time now
+    # Set Time RTC
+    from ntptime import settime
+    try:
+        settime()
+        (y, m, d, h, mm, s, c, u) = time.localtime()
+        starttime = '%d-%d-%d %d:%d:%d UTC' % (y, m, d, h, mm, s)
+    except:
+        starttime = '2061-01-01 00:00:00'
+        print('Cannot set time')
 
-    # To have time to press ^c
-    time.sleep(2)
+    if hard_reset:
+        config.set_config('starttime', starttime)
 
-    # Update config with new values
-    # Get Network Parameters
-    if sta_if != None:
-        (address, mask, gateway, dns) = sta_if.ifconfig()
-        config.set_config('address', address)
-        config.set_config('mask', mask)
-        config.set_config('gateway', gateway)
-        config.set_config('dns', dns)
-        config.set_config('mac', hexlify(sta_if.config('mac'), ':'))
+    # Set hostname
+    interface.config(dhcp_hostname=chipid)
+    config.set_config('hostname', interface.config('dhcp_hostname'))
 
-    # Ok now we save configuration!
-    config.set_time()
-    config.save_config()
+    # We will save new configuration only at powerup
+    if hard_reset:
+        config.save_config()
 
     # Free some memory
     ssid = pwd = None
@@ -100,24 +117,19 @@ def main():
     address = mask = gateway = dns = None
     gc.collect()
 
-    #
-    from httpserver import Server
-    server = Server(8805)    # construct server object
-    server.activate(timeout=0.3) # activate
+    # The application hook
+    from application import application
+    application()
 
-    # Initialize an external Control
-    from control import control
-    control.loop()
-    server.wait_connections()
+    # Restart
+    print('Restarting')
+    time.sleep(5.0)
 
-    try:
-        while True:
-           control.loop()
-           server.wait_connections()
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        print(e)
-        machine.reset()
-        pass
+    # If everything was ok we go to sleep for a while
+    sleep = config.get_config('sleep')
+    if sleep :
+        from gotosleep import gotosleep
+        gotosleep(int(sleep))
+
+    machine.reset()
 

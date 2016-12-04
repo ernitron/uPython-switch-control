@@ -3,37 +3,39 @@ import time
 from config import config
 import json
 
-def register(content):
-    url = config.get_config('register')
-    if url == 'none': return
-    auth = config.get_config('authorization')
-    if auth == 'none': return
-
-    header = 'Content-Type: application/json\r\nAuthorization: Basic %s\r\n' % auth
-    jsondata = json.dumps(content)
-    http_post(url, header, jsondata)
-
-def http_post(url, header, content):
-    _, _, host, path = url.split('/', 3)
-    if ':' in host:
-        host, port = host.split(':')
-        port = int(port)
+class Register():
+  def __init__(self, url, auth):
+    try:
+        _, __, self.host, self.path = url.split('/', 3)
+    except:
+        self.host = None
+        return
+    if ':' in self.host:
+        self.host, self.port = self.host.split(':')
+        self.port = int(self.port)
     else:
-        port = 80
-    addr = socket.getaddrinfo(host, port)[0][-1]
+        self.port = 80
+
+    self.header = 'Content-Type: application/json\r\n'
+    if auth:
+        self.header += 'Authorization: Basic %s\r\n' % auth
+
+  def http_post(content):
+    if not self.host : return
+
+    jsondata = json.dumps(content)
+    addr = socket.getaddrinfo(self.host, self.port)[0][-1]
     s = socket.socket()
-    s.settimeout(5) # otherwise it will wait forever
+    s.settimeout(4) # otherwise it will wait forever
+    l = len(content)
+    msg = b'POST /%s HTTP/1.1\r\nHost: espserver\r\nContent-Length:%d\r\n%s\r\n' % (self.path, l, self.header)
     try:
         s.connect(addr)
-    except:
-        return
-    l = len(content)
-    xmsg = bytes('POST /%s HTTP/1.1\r\nHost: esp8266\r\nContent-Length:%d\r\n%s\r\n' % (path, l, header), 'utf8')
-    try:
-        s.send(xmsg)
+        s.send(msg)
         s.sendall(content)
-        s.close()
-    except:
-        return
-    print('Registered')
+    except: # most probably a timeout
+        pass
+    s.close()
 
+# Register class initialized to None
+register = None

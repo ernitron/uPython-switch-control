@@ -4,14 +4,14 @@
 
 import time
 from machine import Pin
-from config import config
 
 class PirDevice():
     # D2	GPIO04	Pin(4)
-    def __init__(self, p=4):
+    def __init__(self, p=4, sensor='Pir', place='noplace', server=''):
         self.pin = Pin(p, Pin.IN)
-        self.sensor = config.get_config('pir')
-        self.place = config.get_config('place')
+        self.sensor = sensor
+        self.server = server
+        self.place = place
         self.count = 0
 
     def get(self):
@@ -20,10 +20,12 @@ class PirDevice():
 
     def status(self):
         T = {}
-        T['place'] = config.get_config('place')
-        T['server'] = config.get_config('address')
+        T['place'] = self.place
+        T['server'] = self.server
         T['count'] = self.count
         T['sensor'] = self.sensor
         T['date'] = time.time()
         return T
 
+# The Pir class initialized yo None
+pir = None
